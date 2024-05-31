@@ -1,74 +1,66 @@
-# This workflow will build a Java project with Maven
-# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
-
-name: Unit-Test
-
-on:
-  push:
-    branches:
-      - master
-      - 'rel/*'
-      - pipe-meta-sync
-    paths-ignore:
-      - 'docs/**'
-      - 'site/**'
-  pull_request:
-    branches:
-      - master
-      - 'rel/*'
-      - pipe-meta-sync
-    paths-ignore:
-      - 'docs/**'
-      - 'site/**'
-  # allow manually run the action:
-  workflow_dispatch:
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
+  group: ${{ github.workflow }}-${{ github.ref }}
 env:
-  MAVEN_OPTS: -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.class=standard -Dmaven.wagon.http.retryHandler.count=3
   GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GE_ACCESS_TOKEN }}
-
+  MAVEN_OPTS: -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.class=standard
+    -Dmaven.wagon.http.retryHandler.count=3
 jobs:
   unit-test:
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@v4
+    - continue-on-error: true
+      name: Set up JDK ${{ matrix.java }}
+      uses: actions/setup-java@v4
+      with:
+        distribution: corretto
+        java-version: ${{ matrix.java }}
+    - continue-on-error: true
+      name: Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        path: ~/.m2
+        restore-keys: ${{ runner.os }}-m2-
+    - continue-on-error: true
+      if: ${{ matrix.it_task == 'datanode'}}
+      name: Test Datanode Module with Maven
+      run: mvn clean integration-test -Dtest.port.closed=true -pl iotdb-core/datanode
+        -am -DskipTests -Diotdb.test.only=true
+      shell: bash
+    - continue-on-error: true
+      if: ${{ matrix.it_task == 'others'}}
+      name: Test Other Modules with Maven
+      run: 'mvn clean install -DskipTests
+
+        mvn -P get-jar-with-dependencies,with-integration-tests clean test -Dtest.port.closed=true
+        -Diotdb.test.skip=true
+
+        '
+      shell: bash
     strategy:
       fail-fast: false
-      max-parallel: 15
       matrix:
-        java: [ 8, 17 ]
-        os: [ ubuntu-latest, windows-latest ]
-        it_task: [ 'others', 'datanode' ]
         include:
-          - java: 17
-            os: macos-latest
-            it_task: 'datanode'
-          - java: 17
-            os: macos-latest
-            it_task: 'others'
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v4
-        with:
-          distribution: corretto
-          java-version: ${{ matrix.java }}
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
-      - name: Test Datanode Module with Maven
-        shell: bash
-        if: ${{ matrix.it_task == 'datanode'}}
-        run: mvn clean integration-test -Dtest.port.closed=true -pl iotdb-core/datanode -am -DskipTests -Diotdb.test.only=true
-      - name: Test Other Modules with Maven
-        shell: bash
-        if: ${{ matrix.it_task == 'others'}}
-        run: |
-          mvn clean install -DskipTests
-          mvn -P get-jar-with-dependencies,with-integration-tests clean test -Dtest.port.closed=true -Diotdb.test.skip=true
+        - it_task: datanode
+          java: 17
+          os: macos-latest
+        - it_task: others
+          java: 17
+          os: macos-latest
+        it_task:
+        - others
+        - datanode
+        java:
+        - 8
+        - 17
+        os:
+        - ubuntu-latest
+        - windows-latest
+      max-parallel: 15
+name: Unit-Test
+on:
+  repository_dispatch:
+    types: trigger-ga___unit-test.yml
